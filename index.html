@@ -1221,5 +1221,260 @@ supabaseClient.auth.onAuthStateChange((event) => {
 </script>
 <!-- סוף ניהול מחיקות -->
 
+<!-- SUPHERB - ניהול עובדים -->
+<style>
+  #employeeAdmin .ea-card {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    margin: 15px 0;
+    box-shadow: 0 2px 8px #0001;
+  }
+  #employeeAdmin table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  #employeeAdmin th,
+  #employeeAdmin td {
+    padding: 12px;
+    border-bottom: 1px solid #ddd;
+    text-align: right;
+  }
+  #employeeAdmin .ea-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  #employeeAdmin .ea-actions button {
+    padding: 8px 12px;
+  }
+  #employeeAdmin .ea-danger {
+    background: #b91c1c;
+    color: white;
+  }
+</style>
+
+<script>
+(function () {
+  "use strict";
+
+  const section = document.createElement("section");
+  section.id = "employeeAdmin";
+  section.innerHTML = `
+    <h2>ניהול עובדים</h2>
+    <div class="ea-card">
+      <p>אישור עובדים, דחייה וחסימת גישה למערכת.</p>
+      <button type="button" id="eaRefresh">
+        רענון רשימת עובדים
+      </button>
+      <p id="eaMessage"></p>
+      <div id="eaTable" style="overflow-x:auto"></div>
+    </div>
+  `;
+
+  document.querySelector("main").appendChild(section);
+
+  const nav = document.getElementById("tabs");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "ניהול עובדים";
+  button.style.display = "none";
+
+  button.setAttribute(
+    "onclick",
+    "tab('employeeAdmin')"
+  );
+
+  nav.appendChild(button);
+
+  const message = document.getElementById("eaMessage");
+  const tableArea = document.getElementById("eaTable");
+
+  function setMessage(text) {
+    message.textContent = text;
+  }
+
+  async function checkAdmin() {
+    const { data, error } =
+      await supabaseClient.auth.getUser();
+
+    if (error || !data.user) {
+      throw new Error("יש להתחבר למערכת.");
+    }
+
+    const { data: profile, error: profileError } =
+      await supabaseClient
+        .from("profiles")
+        .select("role, approval_status")
+        .eq("user_id", data.user.id)
+        .single();
+
+    if (profileError ||
+        profile?.role !== "admin" ||
+        profile?.approval_status !== "approved") {
+      throw new Error("אין הרשאת מנהל.");
+    }
+
+    return true;
+  }
+
+  const statusNames = {
+    pending: "ממתין לאישור",
+    approved: "מאושר",
+    rejected: "נדחה",
+    blocked: "חסום"
+  };
+
+  function cell(row, value) {
+    const td = document.createElement("td");
+    td.textContent = value == null ? "" : String(value);
+    row.appendChild(td);
+    return td;
+  }
+
+  async function loadEmployees() {
+    tableArea.replaceChildren();
+    setMessage("טוען עובדים...");
+
+    try {
+      await checkAdmin();
+
+      const { data, error } =
+        await supabaseClient.rpc("admin_list_employees");
+
+      if (error) throw error;
+
+      const employees = Array.isArray(data) ? data : [];
+
+      setMessage("נמצאו " + employees.length + " משתמשים.");
+
+      const table = document.createElement("table");
+      const head = document.createElement("tr");
+
+      ["אימייל", "תפקיד", "סטטוס", "פעולות"]
+        .forEach(title => {
+          const th = document.createElement("th");
+          th.textContent = title;
+          head.appendChild(th);
+        });
+
+      table.appendChild(head);
+
+      employees.forEach(employee => {
+        const row = document.createElement("tr");
+
+        cell(row, employee.email);
+        cell(row, employee.role === "admin"
+          ? "מנהל"
+          : employee.role === "manager"
+            ? "מנהל מחלקה"
+            : "עובד");
+
+        cell(
+          row,
+          statusNames[employee.approval_status] ||
+          employee.approval_status
+        );
+
+        const actionsCell = cell(row, "");
+
+        if (employee.role === "employee") {
+          const actions = document.createElement("div");
+          actions.className = "ea-actions";
+
+          [
+            ["אישור", "approved"],
+            ["דחייה", "rejected"],
+            ["חסימה", "blocked"]
+          ].forEach(([title, status]) => {
+            const actionButton = document.createElement("button");
+            actionButton.type = "button";
+            actionButton.textContent = title;
+
+            if (status === "blocked") {
+              actionButton.className = "ea-danger";
+            }
+
+            if (employee.approval_status === status) {
+              actionButton.disabled = true;
+            }
+
+            actionButton.addEventListener("click", async () => {
+              const confirmed = confirm(
+                "האם לבצע " + title +
+                " עבור " + employee.email + "?"
+              );
+
+              if (!confirmed) return;
+
+              actionButton.disabled = true;
+
+              try {
+                await checkAdmin();
+
+                const { error } = await supabaseClient.rpc(
+                  "admin_manage_employee",
+                  {
+                    target_user_id: employee.id,
+                    new_status: status
+                  }
+                );
+
+                if (error) throw error;
+
+                await loadEmployees();
+                alert("הפעולה בוצעה בהצלחה.");
+
+              } catch (err) {
+                alert("שגיאה: " + err.message);
+                actionButton.disabled = false;
+              }
+            });
+
+            actions.appendChild(actionButton);
+          });
+
+          actionsCell.appendChild(actions);
+        } else {
+          actionsCell.textContent = "ללא פעולות";
+        }
+
+        table.appendChild(row);
+      });
+
+      tableArea.appendChild(table);
+
+    } catch (err) {
+      setMessage("שגיאה: " + err.message);
+    }
+  }
+
+  document.getElementById("eaRefresh")
+    .addEventListener("click", loadEmployees);
+
+  async function updateAdminVisibility() {
+    try {
+      await checkAdmin();
+      button.style.display = "";
+    } catch (_) {
+      button.style.display = "none";
+      if (section.classList.contains("active")) {
+        tab("home");
+      }
+    }
+  }
+
+  // טעינה אוטומטית בעת כניסת מנהל ללשונית
+  button.addEventListener("click", loadEmployees);
+
+  supabaseClient.auth.onAuthStateChange(() => {
+    setTimeout(updateAdminVisibility, 0);
+  });
+
+  updateAdminVisibility();
+})();
+</script>
+<!-- סוף ניהול עובדים -->
+
 </body>
 </html>
