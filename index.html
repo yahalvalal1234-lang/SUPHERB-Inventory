@@ -906,5 +906,320 @@ supabaseClient.auth.onAuthStateChange((event) => {
 </script>
 <!-- סוף התוספת -->
 
+<!-- SUPHERB - ניהול מחיקות מקומיות למנהל -->
+<style>
+  #shAdminDelete .sh-del-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 16px 0;
+    box-shadow: 0 2px 8px #0001;
+  }
+  #shAdminDelete .sh-danger {
+    color: #a61b1b;
+    font-weight: bold;
+  }
+  #shAdminDelete .sh-delete-button {
+    background: #b91c1c;
+    color: white;
+    border: 0;
+    border-radius: 8px;
+    padding: 12px 20px;
+    cursor: pointer;
+  }
+  #shAdminDelete .sh-delete-button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+  }
+  #shAdminDelete input,
+  #shAdminDelete select {
+    width: 100%;
+    padding: 10px;
+    margin: 8px 0 14px;
+  }
+</style>
+
+<script>
+(function () {
+  "use strict";
+
+  const section = document.createElement("section");
+  section.id = "shAdminDelete";
+
+  section.innerHTML = `
+    <h2>ניהול מחיקות - מנהל בלבד</h2>
+
+    <div class="sh-del-card">
+      <p class="sh-danger">
+        אזהרה: מחיקה מוחלטת מהמלאי המקומי.
+        לא ניתן לשחזר דרך המערכת.
+      </p>
+
+      <label>סוג פעולה</label>
+      <select id="shDeleteType">
+        <option value="order">מחיקת פק״ע שלמה</option>
+        <option value="location">פינוי איתור</option>
+      </select>
+
+      <label id="shDeleteLabel">מספר פק״ע</label>
+      <input id="shDeleteValue"
+             placeholder="הזן מספר פק״ע מדויק"
+             autocomplete="off">
+
+      <button type="button" id="shDeletePreview">
+        בדיקת הנתונים לפני מחיקה
+      </button>
+
+      <div id="shDeleteSummary"></div>
+    </div>
+  `;
+
+  document.querySelector("main").appendChild(section);
+
+  const navButton = document.createElement("button");
+  navButton.type = "button";
+  navButton.textContent = "ניהול מחיקות";
+  navButton.onclick = function () {
+    tab("shAdminDelete");
+  };
+  document.getElementById("tabs").appendChild(navButton);
+
+  const typeInput = document.getElementById("shDeleteType");
+  const valueInput = document.getElementById("shDeleteValue");
+  const label = document.getElementById("shDeleteLabel");
+  const summary = document.getElementById("shDeleteSummary");
+
+  function clearPreview() {
+    summary.replaceChildren();
+  }
+
+  typeInput.addEventListener("change", function () {
+    valueInput.value = "";
+    clearPreview();
+
+    if (typeInput.value === "order") {
+      label.textContent = "מספר פק״ע";
+      valueInput.placeholder = "הזן מספר פק״ע מדויק";
+    } else {
+      label.textContent = "מספר איתור";
+      valueInput.placeholder = "לדוגמה R1-L1-P01";
+    }
+  });
+
+  valueInput.addEventListener("input", clearPreview);
+
+  async function verifyAdmin() {
+    const { data: userData, error: userError } =
+      await supabaseClient.auth.getUser();
+
+    if (userError || !userData.user) {
+      throw new Error("יש להתחבר מחדש למערכת.");
+    }
+
+    const { data: profile, error: profileError } =
+      await supabaseClient
+        .from("profiles")
+        .select("role, approval_status")
+        .eq("user_id", userData.user.id)
+        .single();
+
+    if (profileError || !profile) {
+      throw new Error("לא ניתן לבדוק הרשאות מנהל.");
+    }
+
+    if (profile.role !== "admin" ||
+        profile.approval_status !== "approved") {
+      throw new Error("הפעולה מותרת למנהל מאושר בלבד.");
+    }
+
+    return userData.user;
+  }
+
+  function matchingItems(type, value) {
+    return stock.filter(function (item) {
+      if (type === "order") {
+        return String(item.order).trim() === value;
+      }
+      return String(item.loc).trim() === value;
+    });
+  }
+
+  function makeElement(tag, text) {
+    const el = document.createElement(tag);
+    el.textContent = text;
+    return el;
+  }
+
+  document.getElementById("shDeletePreview")
+    .addEventListener("click", async function () {
+
+      clearPreview();
+
+      const type = typeInput.value;
+      const value = valueInput.value.trim();
+
+      if (!value) {
+        alert("יש להזין מספר פק״ע או איתור.");
+        return;
+      }
+
+      try {
+        await verifyAdmin();
+      } catch (error) {
+        alert(error.message);
+        return;
+      }
+
+      const items = matchingItems(type, value);
+
+      if (items.length === 0) {
+        summary.appendChild(
+          makeElement("p", "לא נמצאו נתונים למחיקה.")
+        );
+        return;
+      }
+
+      const barrelCount = items.reduce(
+        (sum, item) => sum + item.barrels.length, 0
+      );
+
+      const box = document.createElement("div");
+      box.className = "sh-del-card";
+
+      box.appendChild(makeElement(
+        "h3",
+        type === "order"
+          ? "פק״ע למחיקה: " + value
+          : "איתור לפינוי: " + value
+      ));
+
+      box.appendChild(makeElement(
+        "p", "מספר משטחים: " + items.length
+      ));
+
+      box.appendChild(makeElement(
+        "p", "מספר חביות: " + barrelCount
+      ));
+
+      items.forEach(function (item) {
+        box.appendChild(makeElement(
+          "p",
+          "משטח: " + item.pallet +
+          " | פק״ע: " + item.order +
+          " | אצווה: " + item.batch +
+          " | איתור: " + item.loc
+        ));
+      });
+
+      box.appendChild(makeElement(
+        "p",
+        "כדי לאשר, הקלד בדיוק: מחק לצמיתות"
+      ));
+
+      const confirmInput = document.createElement("input");
+      confirmInput.placeholder = "הקלד מחק לצמיתות";
+      confirmInput.autocomplete = "off";
+      box.appendChild(confirmInput);
+
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "sh-delete-button";
+      deleteButton.textContent = "מחיקה מוחלטת";
+      box.appendChild(deleteButton);
+
+      summary.appendChild(box);
+
+      deleteButton.addEventListener("click", async function () {
+        if (confirmInput.value.trim() !== "מחק לצמיתות") {
+          alert("טקסט האישור אינו תואם.");
+          return;
+        }
+
+        deleteButton.disabled = true;
+
+        try {
+          await verifyAdmin();
+
+          // בדיקה שהנתונים לא השתנו מאז התצוגה
+          const currentItems = matchingItems(type, value);
+
+          const originalIds = items
+            .map(item => item.pallet)
+            .sort();
+
+          const currentIds = currentItems
+            .map(item => item.pallet)
+            .sort();
+
+          if (JSON.stringify(originalIds) !==
+              JSON.stringify(currentIds)) {
+            throw new Error(
+              "המלאי השתנה. יש לבצע בדיקה מחדש."
+            );
+          }
+
+          const accepted = window.confirm(
+            "אישור סופי: למחוק לצמיתות " +
+            currentItems.length + " משטחים ו-" +
+            barrelCount + " חביות?"
+          );
+
+          if (!accepted) {
+            deleteButton.disabled = false;
+            return;
+          }
+
+          const deletedPallets = new Set(
+            currentItems.map(item => item.pallet)
+          );
+
+          const remainingStock = stock.filter(
+            item => !deletedPallets.has(item.pallet)
+          );
+
+          const remainingCounts = counts.filter(
+            item => !deletedPallets.has(item.pallet)
+          );
+
+          // שמירת המלאי המעודכן בדפדפן
+          localStorage.setItem(
+            KEY, JSON.stringify(remainingStock)
+          );
+
+          localStorage.setItem(
+            COUNTKEY, JSON.stringify(remainingCounts)
+          );
+
+          stock = remainingStock;
+          counts = remainingCounts;
+
+          refresh();
+
+          // ניקוי פרטי איתור ישנים
+          const info = document.getElementById("locationInfo");
+          if (info) {
+            info.textContent = "בחר איתור להצגת המשטחים.";
+          }
+
+          clearPreview();
+          valueInput.value = "";
+
+          alert(
+            "המחיקה המקומית הושלמה. " +
+            currentItems.length + " משטחים ו-" +
+            barrelCount + " חביות נמחקו."
+          );
+
+        } catch (error) {
+          deleteButton.disabled = false;
+          alert("המחיקה לא בוצעה: " + error.message);
+        }
+      });
+    });
+
+})();
+</script>
+<!-- סוף ניהול מחיקות -->
+
 </body>
 </html>
