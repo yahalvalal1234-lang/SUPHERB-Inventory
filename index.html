@@ -90,6 +90,7 @@ th,td{padding:10px;border-bottom:1px solid #ddd;text-align:right}
       <input id="loginPassword" type="password" placeholder="סיסמה">
       <button type="button" onclick="loginUser()">כניסה</button>
       <button type="button" onclick="showRegister()">הרשמת עובד חדש</button>
+      <button type="button" onclick="showForgot()">שכחתי סיסמה</button>
     </div>
 
     <div id="registerForm" style="display:none">
@@ -101,7 +102,38 @@ th,td{padding:10px;border-bottom:1px solid #ddd;text-align:right}
       <button type="button" onclick="registerUser()">שליחת בקשת הרשמה</button>
       <button type="button" onclick="showLogin()">חזרה לכניסה</button>
     </div>
+<div id="forgotForm" style="display:none">
+  <h3>איפוס סיסמה</h3>
+  <p>הזן את כתובת המייל שלך לקבלת קישור לאיפוס הסיסמה.</p>
 
+  <input id="resetEmail"
+         type="email"
+         placeholder="כתובת אימייל">
+
+  <button type="button" onclick="sendResetEmail()">
+    שליחת קישור לאיפוס
+  </button>
+
+  <button type="button" onclick="showLogin()">
+    חזרה לכניסה
+  </button>
+</div>
+
+<div id="newPasswordForm" style="display:none">
+  <h3>הגדרת סיסמה חדשה</h3>
+
+  <input id="newPassword"
+         type="password"
+         placeholder="סיסמה חדשה">
+
+  <input id="confirmPassword"
+         type="password"
+         placeholder="אימות סיסמה חדשה">
+
+  <button type="button" onclick="saveNewPassword()">
+    שמירת סיסמה חדשה
+  </button>
+</div>
     <p id="authMessage" style="text-align:center"></p>
   </div>
 </div>
@@ -332,6 +364,8 @@ function showRegister() {
 function showLogin() {
   document.getElementById('registerForm').style.display = 'none';
   document.getElementById('loginForm').style.display = 'block';
+  document.getElementById('forgotForm').style.display = 'none';
+document.getElementById('newPasswordForm').style.display = 'none';
   document.getElementById('authMessage').textContent = '';
 }
 
@@ -408,6 +442,101 @@ async function loginUser() {
   document.getElementById('authScreen').style.display = 'none';
   authMessage('');
 }
+</script>
+
+<script>
+function showForgot() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('registerForm').style.display = 'none';
+  document.getElementById('newPasswordForm').style.display = 'none';
+  document.getElementById('forgotForm').style.display = 'block';
+  authMessage('');
+}
+
+async function sendResetEmail() {
+  const email = document.getElementById('resetEmail').value.trim();
+
+  if (!email) {
+    authMessage('נא להזין כתובת מייל');
+    return;
+  }
+
+  authMessage('שולח קישור לאיפוס...');
+
+  const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname
+  });
+
+  if (error) {
+    authMessage('שגיאה בשליחת הקישור: ' + error.message);
+  } else {
+    authMessage('אם החשבון קיים, נשלח קישור לאיפוס הסיסמה. בדוק גם בתיקיית הספאם.');
+  }
+}
+
+function showNewPassword() {
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('registerForm').style.display = 'none';
+  document.getElementById('forgotForm').style.display = 'none';
+  document.getElementById('newPasswordForm').style.display = 'block';
+  authMessage('הקישור אומת. נא לבחור סיסמה חדשה.');
+}
+
+async function saveNewPassword() {
+  const password = document.getElementById('newPassword').value;
+  const confirm = document.getElementById('confirmPassword').value;
+
+  if (password.length < 8) {
+    authMessage('הסיסמה חייבת להכיל לפחות 8 תווים');
+    return;
+  }
+
+  if (password !== confirm) {
+    authMessage('הסיסמאות אינן תואמות');
+    return;
+  }
+
+  authMessage('שומר סיסמה חדשה...');
+
+  const { error } = await supabaseClient.auth.updateUser({ password });
+
+  if (error) {
+    authMessage('שגיאה: ' + error.message);
+    return;
+  }
+
+  await supabaseClient.auth.signOut();
+  document.getElementById('newPassword').value = '';
+  document.getElementById('confirmPassword').value = '';
+
+  document.getElementById('newPasswordForm').style.display = 'none';
+  document.getElementById('loginForm').style.display = 'block';
+
+  history.replaceState(null, '', window.location.pathname);
+  authMessage('הסיסמה שונתה בהצלחה! כעת ניתן להתחבר.');
+}
+
+// זיהוי קישור איפוס סיסמה שנשלח למייל
+supabaseClient.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY') {
+    showNewPassword();
+  }
+});
+
+// טיפול בקישור איפוס בעת טעינת האתר
+(async function () {
+  const url = new URL(window.location.href);
+  const isRecovery = url.hash.includes('type=recovery') ||
+                     url.searchParams.get('type') === 'recovery';
+
+  if (isRecovery) {
+    const { data } = await supabaseClient.auth.getSession();
+    if (data.session) {
+      showNewPassword();
+    }
+  }
+})();
 </script>
 
 </body>
