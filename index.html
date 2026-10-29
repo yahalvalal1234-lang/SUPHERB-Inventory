@@ -539,5 +539,372 @@ supabaseClient.auth.onAuthStateChange((event) => {
 })();
 </script>
 
+<!-- SUPHERB: הדמיית איתורים והדפסת חביות -->
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+
+<style>
+  .sh-panel {
+    background:white;
+    padding:18px;
+    border-radius:12px;
+    margin:12px 0;
+    box-shadow:0 2px 8px #0001;
+  }
+  .sh-highlight {
+    background:#36d399 !important;
+    outline:3px solid #087f5b !important;
+    color:#063b2b !important;
+    font-weight:bold;
+  }
+  .sh-info {
+    background:#e7f5ff;
+    padding:12px;
+    border-radius:8px;
+    margin-top:12px;
+  }
+  .sh-error {
+    color:#b91c1c;
+    font-weight:bold;
+  }
+</style>
+
+<script>
+(function () {
+  'use strict';
+
+  const section = document.createElement('section');
+  section.id = 'barrelPrinting';
+
+  section.innerHTML = `
+    <h2>הדפסת מדבקות חביות</h2>
+    <div class="sh-panel">
+      <label>מספר פק״ע</label>
+      <input id="shPrintOrder"
+             placeholder="הקלד או סרוק מספר פק״ע">
+
+      <button type="button" id="shFindBarrels">
+        איתור חביות לפי פק״ע
+      </button>
+
+      <div id="shPrintResults"></div>
+    </div>
+
+    <div class="sh-panel">
+      <h3>אופן ההדפסה</h3>
+      <p>
+        לכל חבית יודפסו שתי מדבקות זהות:
+        אחת להדבקה על החבית ואחת להצמדה
+        לפקודת העבודה הפיזית.
+      </p>
+      <p>
+        כל מדבקה כוללת מספר פק״ע,
+        אצווה, מספר חבית ייחודי
+        וברקודים לסריקה.
+      </p>
+      <p class="small">
+        ההדפסה אינה יוצרת חביות חדשות במלאי.
+      </p>
+    </div>
+  `;
+
+  document.querySelector('main').appendChild(section);
+
+  const navButton = document.createElement('button');
+  navButton.type = 'button';
+  navButton.textContent = 'הדפסת ברקוד לחביות';
+  navButton.setAttribute('onclick', "tab('barrelPrinting')");
+  document.getElementById('tabs').appendChild(navButton);
+
+  const mapPanel = document.createElement('div');
+  mapPanel.className = 'sh-panel';
+  mapPanel.innerHTML = `
+    <h3>איתור פק״ע במחסן</h3>
+    <label>מספר פק״ע לחיפוש</label>
+    <input id="shMapOrder"
+           placeholder="הקלד או סרוק פק״ע">
+    <button type="button" id="shFindLocation">
+      הצג מיקום במפלסים
+    </button>
+    <div id="shMapResults"></div>
+  `;
+
+  const mapSection = document.getElementById('map');
+  mapSection.insertBefore(mapPanel, mapSection.firstChild.nextSibling);
+
+  function clean(value) {
+    return String(value == null ? '' : value).trim();
+  }
+
+  function escapeHtml(value) {
+    return clean(value).replace(/[&<>"']/g, function (c) {
+      return {
+        '&':'&amp;',
+        '<':'&lt;',
+        '>':'&gt;',
+        '"':'&quot;',
+        "'":'&#39;'
+      }[c];
+    });
+  }
+
+  function findOrder(value) {
+    const order = clean(value).toLowerCase();
+    if (!order) return [];
+    return stock.filter(function (item) {
+      return clean(item.order).toLowerCase() === order;
+    });
+  }
+
+  function locateOrder() {
+    const value = document.getElementById('shMapOrder').value;
+    const matches = findOrder(value);
+    const result = document.getElementById('shMapResults');
+
+    document.querySelectorAll('#warehouse .slot').forEach(
+      function (slot) {
+        slot.classList.remove('sh-highlight');
+      }
+    );
+
+    if (!clean(value)) {
+      result.innerHTML = '<p class="sh-error">יש להזין מספר פק״ע.</p>';
+      return;
+    }
+
+    if (!matches.length) {
+      result.innerHTML =
+        '<p class="sh-error">לא נמצאו משטחים לפק״ע זו במלאי המקומי.</p>';
+      return;
+    }
+
+    const locationSet = new Set(matches.map(x => x.loc));
+
+    document.querySelectorAll('#warehouse .slot').forEach(
+      function (slot) {
+        const location = slot.textContent.trim().split(/\s/)[0];
+        if (locationSet.has(location)) {
+          slot.classList.add('sh-highlight');
+        }
+      }
+    );
+
+    result.innerHTML =
+      '<div class="sh-info"><b>נמצאו ' +
+      matches.length + ' משטחים</b><br>' +
+      matches.map(function (x) {
+        return 'משטח ' + escapeHtml(x.pallet) +
+          ' — איתור <b>' + escapeHtml(x.loc) +
+          '</b> — ' + x.barrels.length + ' חביות';
+      }).join('<br>') +
+      '</div>';
+
+    const first = document.querySelector('#warehouse .sh-highlight');
+    if (first) first.scrollIntoView({
+      behavior:'smooth',
+      block:'center'
+    });
+  }
+
+  document.getElementById('shFindLocation')
+    .addEventListener('click', locateOrder);
+
+  function showPrintOrder() {
+    const value = document.getElementById('shPrintOrder').value;
+    const matches = findOrder(value);
+    const result = document.getElementById('shPrintResults');
+
+    if (!clean(value)) {
+      result.innerHTML =
+        '<p class="sh-error">יש להזין מספר פק״ע.</p>';
+      return;
+    }
+
+    if (!matches.length) {
+      result.innerHTML =
+        '<p class="sh-error">לא נמצאו חביות לפק״ע זו. ' +
+        'יש לקלוט אותן תחילה במערכת.</p>';
+      return;
+    }
+
+    const barrels = matches.flatMap(function (x) {
+      return x.barrels.map(function (code) {
+        return {code:code, item:x};
+      });
+    });
+
+    result.innerHTML = `
+      <div class="sh-info">
+        <b>פק״ע: ${escapeHtml(matches[0].order)}</b>
+        <p>משטחים: ${matches.length}</p>
+        <p>חביות: ${barrels.length}</p>
+        <p>מדבקות להדפסה: ${barrels.length * 2}</p>
+        <p>מספרי חביות:</p>
+        <div style="overflow-wrap:anywhere">
+          ${barrels.map(x => escapeHtml(x.code)).join(', ')}
+        </div>
+      </div>
+      <button type="button" id="shPrintNow">
+        הדפס שתי מדבקות לכל חבית
+      </button>
+    `;
+
+    document.getElementById('shPrintNow')
+      .addEventListener('click', function () {
+        printBarrels(barrels);
+      });
+  }
+
+  document.getElementById('shFindBarrels')
+    .addEventListener('click', showPrintOrder);
+
+  function barcodeSvg(value) {
+    const svg = document.createElementNS(
+      'http://www.w3.org/2000/svg', 'svg'
+    );
+
+    JsBarcode(svg, String(value), {
+      format:'CODE128',
+      displayValue:false,
+      margin:5,
+      height:48,
+      width:1.5
+    });
+
+    return svg.outerHTML;
+  }
+
+  function printBarrels(barrels) {
+    if (typeof JsBarcode === 'undefined') {
+      alert('ספריית הברקודים לא נטענה. בדוק חיבור לאינטרנט.');
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+
+    if (!printWindow) {
+      alert('הדפדפן חסם את חלון ההדפסה. יש לאפשר חלונות קופצים.');
+      return;
+    }
+
+    let labels = '';
+
+    try {
+      barrels.forEach(function (entry) {
+        const item = entry.item;
+        const barrelCode = entry.code;
+
+        for (let copy = 1; copy <= 2; copy++) {
+          const destination = copy === 1
+            ? 'להדבקה על החבית'
+            : 'להצמדה לפק״ע הפיזית';
+
+          labels += `
+            <div class="label">
+              <div class="brand">SUPHERB</div>
+              <div class="destination">${destination}</div>
+
+              <div class="field">
+                פק״ע: <b>${escapeHtml(item.order)}</b>
+              </div>
+              ${barcodeSvg(item.order)}
+
+              <div class="field">
+                אצווה: <b>${escapeHtml(item.batch)}</b>
+              </div>
+
+              <div class="field">
+                מספר חבית: <b>${escapeHtml(barrelCode)}</b>
+              </div>
+              ${barcodeSvg(barrelCode)}
+            </div>
+          `;
+        }
+      });
+    } catch (error) {
+      printWindow.close();
+      alert('שגיאה ביצירת ברקוד: ' + error.message);
+      return;
+    }
+
+    const html = `
+      <!doctype html>
+      <html lang="he" dir="rtl">
+      <head>
+        <meta charset="UTF-8">
+        <title>SUPHERB - מדבקות חביות</title>
+        <style>
+          @page {
+            size: 100mm 75mm;
+            margin: 0;
+          }
+          * { box-sizing: border-box; }
+          body {
+            margin:0;
+            font-family:Arial,sans-serif;
+            color:#000;
+          }
+          .label {
+            width:100mm;
+            height:75mm;
+            padding:3mm;
+            text-align:center;
+            break-after:page;
+            page-break-after:always;
+            overflow:hidden;
+          }
+          .brand {
+            font-size:18pt;
+            font-weight:bold;
+          }
+          .destination {
+            font-size:9pt;
+            border-bottom:1px solid black;
+            margin-bottom:2mm;
+          }
+          .field {
+            font-size:11pt;
+            margin-top:1mm;
+          }
+          svg {
+            display:block;
+            width:90%;
+            max-height:16mm;
+            margin:1mm auto;
+          }
+          @media screen {
+            body { background:#ddd; }
+            .label {
+              background:white;
+              margin:12px auto;
+              box-shadow:0 2px 8px #999;
+            }
+          }
+        </style>
+      </head>
+      <body>${labels}</body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
+
+  // מקש Enter מפעיל חיפוש
+  document.getElementById('shMapOrder')
+    .addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') locateOrder();
+    });
+
+  document.getElementById('shPrintOrder')
+    .addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') showPrintOrder();
+    });
+})();
+</script>
+<!-- סוף התוספת -->
+
 </body>
 </html>
