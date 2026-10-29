@@ -1,0 +1,252 @@
+
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SUPHERB | ניהול מלאי אריזה</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f1f5f9;color:#172b45}
+header{background:#123154;color:white;padding:20px}
+header h1{margin:0;font-size:27px}
+nav{display:flex;gap:8px;overflow:auto;padding:12px;background:white}
+button{cursor:pointer;border:0;border-radius:8px;padding:11px 15px;background:#176b64;color:white;font-weight:bold}
+nav button{white-space:nowrap;background:#e2e8f0;color:#123154}
+nav button.active{background:#123154;color:white}
+main{max-width:1100px;margin:auto;padding:16px}
+section{display:none}
+section.active{display:block}
+.card{background:white;border-radius:12px;padding:18px;margin:12px 0;box-shadow:0 2px 8px #0001}
+input,select{padding:11px;border:1px solid #cbd5e1;border-radius:7px;width:100%;margin:5px 0 12px;font-size:16px}
+label{font-weight:bold}
+table{width:100%;border-collapse:collapse;background:white}
+th,td{padding:10px;border-bottom:1px solid #ddd;text-align:right}
+.scroll{overflow:auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.slot{background:#e2e8f0;color:#123154;padding:13px;border-radius:8px;text-align:center;cursor:pointer}
+.slot.full{background:#b7e4d5}
+.slot:hover{outline:2px solid #176b64}
+.small{color:#64748b;font-size:13px}
+.ok{color:green;font-weight:bold}
+.bad{color:#b91c1c;font-weight:bold}
+</style>
+</head>
+<body>
+<header>
+<h1>SUPHERB</h1>
+<div>ניהול מלאי אריזה | כמוסות • טבליות • סופטג'ל</div>
+</header>
+<nav id="tabs">
+<button onclick="tab('home')" class="active">ראשי</button>
+<button onclick="tab('receive')">קליטת משטח</button>
+<button onclick="tab('map')">מפת מחסן</button>
+<button onclick="tab('orders')">פק"ע וברקודים</button>
+<button onclick="tab('packing')">אימות אריזה</button>
+<button onclick="tab('count')">ספירת מלאי</button>
+</nav>
+<main>
+<section id="home" class="active">
+<h2>לוח בקרה</h2>
+<div class="grid" id="stats"></div>
+<div class="card">
+<h3>חיפוש מהיר</h3>
+<input id="quick" placeholder="חפש פק״ע, אצווה, חבית או משטח" oninput="searchAll(this.value,'quickResults')">
+<div id="quickResults"></div>
+</div>
+</section>
+<section id="receive">
+<h2>קליטה מהייצור למחסן</h2>
+<div class="card">
+<label>מספר משטח / ברקוד</label>
+<input id="pallet" placeholder="M-001">
+<label>מספר פק"ע</label>
+<input id="order" placeholder="פקודת עבודה">
+<label>מספר אצווה</label>
+<input id="batch">
+<label>שם מוצר</label>
+<input id="product">
+<label>סוג מוצר</label>
+<select id="type">
+<option>כמוסות</option><option>טבליות</option><option>סופטג'ל</option>
+</select>
+<label>מספר חביות על המשטח</label>
+<input id="barrels" type="number" min="1" value="1">
+<label>איתור במחסן</label>
+<select id="location"></select>
+<button onclick="receive()">קליטה ושמירה</button>
+</div>
+</section>
+<section id="map">
+<h2>מפת מחסן – 72 איתורים</h2>
+<div id="warehouse"></div>
+<div class="card" id="locationInfo">בחר איתור להצגת המשטחים.</div>
+</section>
+<section id="orders">
+<h2>ניהול פק"ע לפי ברקוד</h2>
+<div class="card">
+<input id="orderSearch" placeholder="סרוק או הקלד פק״ע / ברקוד / אצווה" oninput="searchAll(this.value,'orderResults')">
+<div id="orderResults"></div>
+</div>
+</section>
+<section id="packing">
+<h2>אימות פק"ע באריזה</h2>
+<div class="card">
+<label>פק"ע נדרשת לאריזה</label>
+<input id="expectedOrder">
+<label>אצווה נדרשת</label>
+<input id="expectedBatch">
+<label>סריקת ברקוד חבית</label>
+<input id="scanCode" placeholder="סרוק ברקוד חבית">
+<button onclick="verify()">בדוק התאמה</button>
+<h3 id="verifyResult"></h3>
+</div>
+</section>
+<section id="count">
+<h2>ספירת מלאי חודשית</h2>
+<div class="card">
+<label>חודש ספירה</label>
+<input type="month" id="countMonth">
+<label>מספר משטח</label>
+<input id="countPallet" placeholder="סרוק ברקוד משטח" oninput="showCountExpected()">
+<div id="expectedCount"></div>
+<label>מספר חביות בפועל</label>
+<input type="number" min="0" id="actualCount">
+<label>איתור בפועל</label>
+<select id="countLocation"></select>
+<button onclick="saveCount()">שמור ספירה</button>
+<button onclick="exportCount()">ייצוא CSV לאקסל</button>
+</div>
+<div class="card scroll" id="countResults"></div>
+</section>
+</main>
+<script>
+const KEY='supherb_inventory_v1';
+const COUNTKEY='supherb_counts_v1';
+let stock=JSON.parse(localStorage.getItem(KEY)||'[]');
+let counts=JSON.parse(localStorage.getItem(COUNTKEY)||'[]');
+const $=id=>document.getElementById(id);
+const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const save=()=>localStorage.setItem(KEY,JSON.stringify(stock));
+function tab(id){
+document.querySelectorAll('section').forEach(x=>x.classList.remove('active'));
+$(id).classList.add('active');
+document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+[...document.querySelectorAll('nav button')].find(b=>b.getAttribute('onclick')==="tab('"+id+"')")?.classList.add('active');
+refresh();
+}
+const locations=[];
+for(let r=1;r<=2;r++)
+for(let l=1;l<=4;l++)
+for(let p=1;p<=(r===1?11:7);p++)
+locations.push(`R${r}-L${l}-P${String(p).padStart(2,'0')}`);
+for(const id of ['location','countLocation'])
+$(id).innerHTML=locations.map(x=>`<option>${x}</option>`).join('');
+$('countMonth').value=new Date().toISOString().slice(0,7);
+function receive(){
+const pallet=$('pallet').value.trim();
+const order=$('order').value.trim();
+const batch=$('batch').value.trim();
+const product=$('product').value.trim();
+const qty=Number($('barrels').value);
+const loc=$('location').value;
+if(!pallet||!order||!batch||!product||!Number.isInteger(qty)||qty<1){alert('יש למלא את כל השדות');return}
+if(stock.some(x=>x.pallet===pallet)){alert('מספר משטח כבר קיים');return}
+if(stock.some(x=>x.loc===loc)){alert('האיתור תפוס');return}
+const barrels=Array.from({length:qty},(_,i)=>pallet+'-B'+String(i+1).padStart(3,'0'));
+stock.push({pallet,order,batch,product,type:$('type').value,loc,barrels,date:new Date().toISOString()});
+save();refresh();
+alert('המשטח נקלט בהצלחה. ברקוד חבית הוא מספר המשטח עם סיומת B.');
+$('pallet').value='';$('barrels').value=1;
+}
+function refresh(){
+const total=stock.reduce((n,x)=>n+x.barrels.length,0);
+$('stats').innerHTML=[
+['איתורים',72],['משטחים',stock.length],['חביות',total],
+['איתורים פנויים',72-new Set(stock.map(x=>x.loc)).size]
+].map(x=>`<div class="card"><h2>${x[1]}</h2>${x[0]}</div>`).join('');
+renderMap();renderCounts();
+}
+function renderMap(){
+let html='';
+for(let r=1;r<=2;r++){
+html+=`<div class="card"><h3>שורה ${r}</h3>`;
+for(let l=1;l<=4;l++){
+html+=`<h4>מפלס ${l}</h4><div class="grid">`;
+for(let p=1;p<=(r===1?11:7);p++){
+const loc=`R${r}-L${l}-P${String(p).padStart(2,'0')}`;
+const items=stock.filter(x=>x.loc===loc);
+html+=`<div class="slot ${items.length?'full':''}" onclick="showLocation('${loc}')">${loc}<br>${items.length?'משטח '+safe(items[0].pallet):'פנוי'}</div>`;
+}
+html+='</div>';
+}
+html+='</div>';
+}
+$('warehouse').innerHTML=html;
+}
+function showLocation(loc){
+const items=stock.filter(x=>x.loc===loc);
+$('locationInfo').innerHTML=`<h3>${loc}</h3>`+(items.length?items.map(x=>details(x)).join(''):'האיתור פנוי');
+}
+function details(x){
+return `<div class="card"><b>משטח: ${safe(x.pallet)}</b>
+<p>פק"ע: ${safe(x.order)} | אצווה: ${safe(x.batch)}</p>
+<p>מוצר: ${safe(x.product)} | ${safe(x.type)}</p>
+<p>איתור: ${safe(x.loc)} | חביות: ${x.barrels.length}</p>
+<small>ברקודי חביות: ${x.barrels.map(safe).join(', ')}</small></div>`;
+}
+function searchAll(q,target){
+q=q.trim().toLowerCase();
+if(!q){$(target).innerHTML='';return}
+const found=stock.filter(x=>[x.pallet,x.order,x.batch,x.product,x.loc,...x.barrels].some(v=>String(v).toLowerCase().includes(q)));
+$(target).innerHTML=found.length?found.map(details).join(''):'לא נמצאו תוצאות';
+}
+function verify(){
+const code=$('scanCode').value.trim();
+const x=stock.find(x=>x.barrels.includes(code));
+const result=$('verifyResult');
+if(!x){result.className='bad';result.textContent='חבית לא נמצאה במלאי';return}
+const ok=x.order===$('expectedOrder').value.trim()&&x.batch===$('expectedBatch').value.trim();
+result.className=ok?'ok':'bad';
+result.textContent=ok?'תקין – הפק"ע והאצווה תואמות':'עצור! אי התאמה בפק"ע או באצווה';
+}
+function showCountExpected(){
+const x=stock.find(x=>x.pallet===$('countPallet').value.trim());
+$('expectedCount').textContent=x?`רשום במערכת: ${x.barrels.length} חביות, איתור ${x.loc}`:'משטח לא נמצא';
+if(x)$('countLocation').value=x.loc;
+}
+function saveCount(){
+const pallet=$('countPallet').value.trim();
+const x=stock.find(x=>x.pallet===pallet);
+if(!x){alert('משטח לא נמצא');return}
+const actual=Number($('actualCount').value);
+if($('actualCount').value===''||!Number.isInteger(actual)||actual<0){alert('הזן מספר חביות תקין');return}
+const month=$('countMonth').value;
+if(!month){alert('בחר חודש');return}
+const loc=$('countLocation').value;
+counts=counts.filter(c=>!(c.month===month&&c.pallet===pallet));
+counts.push({month,pallet,expected:x.barrels.length,actual,expectedLoc:x.loc,actualLoc:loc,time:new Date().toISOString()});
+localStorage.setItem(COUNTKEY,JSON.stringify(counts));
+renderCounts();alert('הספירה נשמרה');
+}
+function renderCounts(){
+const month=$('countMonth').value;
+const rows=counts.filter(c=>c.month===month);
+$('countResults').innerHTML='<h3>תוצאות ספירה</h3><div class="scroll"><table><tr><th>משטח</th><th>איתור רשום</th><th>איתור בפועל</th><th>רשום</th><th>נספר</th><th>סטטוס</th></tr>'+
+rows.map(c=>`<tr><td>${safe(c.pallet)}</td><td>${safe(c.expectedLoc)}</td><td>${safe(c.actualLoc)}</td><td>${c.expected}</td><td>${c.actual}</td><td>${c.expected===c.actual&&c.expectedLoc===c.actualLoc?'תואם':'הפרש'}</td></tr>`).join('')+'</table></div>';
+}
+$('countMonth').addEventListener('change',renderCounts);
+function exportCount(){
+const rows=counts.filter(x=>x.month===$('countMonth').value);
+const data=[['Month','Pallet','Expected location','Actual location','Expected barrels','Actual barrels','Difference','Timestamp'],
+...rows.map(x=>[x.month,x.pallet,x.expectedLoc,x.actualLoc,x.expected,x.actual,x.actual-x.expected,x.time])];
+const csv='\uFEFF'+data.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+const a=document.createElement('a');
+a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+a.download='SUPHERB_Count_'+$('countMonth').value+'.csv';a.click();
+setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+refresh();
+</script>
+</body>
+</html>
