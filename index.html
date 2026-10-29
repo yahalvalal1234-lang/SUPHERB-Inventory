@@ -17,6 +17,40 @@ const supabaseClient = window.supabase.createClient(
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SUPHERB | ניהול מלאי אריזה</title>
 <style>
+  
+/* SUPHERB - Login and registration */
+#authScreen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+  padding: 20px;
+}
+.authBox {
+  width: 100%;
+  max-width: 420px;
+  background: white;
+  padding: 30px;
+  border-radius: 14px;
+  box-shadow: 0 4px 20px #0002;
+}
+.authBox h2 {
+  color: #123154;
+  text-align: center;
+}
+.authBox input {
+  width: 100%;
+  padding: 12px;
+  margin: 8px 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+.authBox button {
+  width: 100%;
+  margin-top: 10px;
+}
+
 *{box-sizing:border-box}
 body{margin:0;font-family:Arial,sans-serif;background:#f1f5f9;color:#172b45}
 header{background:#123154;color:white;padding:20px}
@@ -44,6 +78,34 @@ th,td{padding:10px;border-bottom:1px solid #ddd;text-align:right}
 </style>
 </head>
 <body>
+  
+<div id="authScreen">
+  <div class="authBox">
+    <h2>SUPHERB</h2>
+    <h3 style="text-align:center">ניהול מלאי אריזה</h3>
+
+    <div id="loginForm">
+      <h3>כניסה למערכת</h3>
+      <input id="loginEmail" type="email" placeholder="כתובת אימייל">
+      <input id="loginPassword" type="password" placeholder="סיסמה">
+      <button type="button" onclick="loginUser()">כניסה</button>
+      <button type="button" onclick="showRegister()">הרשמת עובד חדש</button>
+    </div>
+
+    <div id="registerForm" style="display:none">
+      <h3>הרשמת עובד חדש</h3>
+      <input id="regName" placeholder="שם מלא">
+      <input id="regNumber" placeholder="מספר עובד">
+      <input id="regEmail" type="email" placeholder="כתובת אימייל">
+      <input id="regPassword" type="password" placeholder="סיסמה">
+      <button type="button" onclick="registerUser()">שליחת בקשת הרשמה</button>
+      <button type="button" onclick="showLogin()">חזרה לכניסה</button>
+    </div>
+
+    <p id="authMessage" style="text-align:center"></p>
+  </div>
+</div>
+
 <header>
 <h1>SUPHERB</h1>
 <div>ניהול מלאי אריזה | כמוסות • טבליות • סופטג'ל</div>
@@ -259,5 +321,94 @@ setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 refresh();
 </script>
+  
+<script>
+function showRegister() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('registerForm').style.display = 'block';
+  document.getElementById('authMessage').textContent = '';
+}
+
+function showLogin() {
+  document.getElementById('registerForm').style.display = 'none';
+  document.getElementById('loginForm').style.display = 'block';
+  document.getElementById('authMessage').textContent = '';
+}
+
+function authMessage(message) {
+  document.getElementById('authMessage').textContent = message;
+}
+
+async function registerUser() {
+  const fullName = document.getElementById('regName').value.trim();
+  const employeeNumber = document.getElementById('regNumber').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const password = document.getElementById('regPassword').value;
+
+  if (!fullName || !employeeNumber || !email || !password) {
+    authMessage('נא למלא את כל הפרטים');
+    return;
+  }
+
+  authMessage('מבצע הרשמה...');
+
+  const { error } = await supabaseClient.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        full_name: fullName,
+        employee_number: employeeNumber
+      },
+      emailRedirectTo: window.location.origin + window.location.pathname
+    }
+  });
+
+  if (error) {
+    authMessage('שגיאה בהרשמה: ' + error.message);
+    return;
+  }
+
+  authMessage('ההרשמה התקבלה. יש לאמת אימייל אם נדרש ולהמתין לאישור מנהל.');
+}
+
+async function loginUser() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+
+  if (!email || !password) {
+    authMessage('נא להזין אימייל וסיסמה');
+    return;
+  }
+
+  authMessage('מתחבר...');
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (error) {
+    authMessage('שגיאה בהתחברות: ' + error.message);
+    return;
+  }
+
+  const { data: profile, error: profileError } = await supabaseClient
+    .from('profiles')
+    .select('approval_status, role')
+    .eq('user_id', data.user.id)
+    .single();
+
+  if (profileError || !profile || profile.approval_status !== 'approved') {
+    await supabaseClient.auth.signOut();
+    authMessage('החשבון עדיין לא אושר על ידי מנהל או שנחסם.');
+    return;
+  }
+
+  document.getElementById('authScreen').style.display = 'none';
+  authMessage('');
+}
+</script>
+
 </body>
 </html>
