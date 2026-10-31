@@ -1489,5 +1489,92 @@ supabaseClient.auth.onAuthStateChange((event) => {
 </script>
 <!-- סוף ניהול עובדים -->
 
+<script>
+(function () {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.textContent = "איפוס סיסמת נתנאל (זמני)";
+  btn.style.cssText =
+    "display:none; margin:15px; background:#b45309; color:white";
+
+  document.querySelector("main").prepend(btn);
+
+  async function showForAdmin() {
+    btn.style.display = "none";
+
+    const { data: { user }, error } =
+      await supabaseClient.auth.getUser();
+
+    if (error || !user) return;
+
+    const { data: profile } = await supabaseClient
+      .from("profiles")
+      .select("role, approval_status")
+      .eq("user_id", user.id)
+      .single();
+
+    if (
+      profile?.role === "admin" &&
+      profile?.approval_status === "approved"
+    ) {
+      btn.style.display = "block";
+    }
+  }
+
+  btn.addEventListener("click", async () => {
+    const password = prompt(
+      "הזן סיסמה חדשה לנתנאל (לפחות 12 תווים):"
+    );
+
+    if (password === null) return;
+
+    if (password.length < 12) {
+      alert("יש להזין לפחות 12 תווים.");
+      return;
+    }
+
+    const confirmed = confirm(
+      "לאפס את הסיסמה של netanelem@supherb.co.il?"
+    );
+
+    if (!confirmed) return;
+
+    btn.disabled = true;
+
+    try {
+      const { data: { session } } =
+        await supabaseClient.auth.getSession();
+
+      if (!session) throw new Error("יש להתחבר כמנהל.");
+
+      const { data, error } =
+        await supabaseClient.functions.invoke(
+          "supherb-password-recovery",
+          {
+            body: { password }
+          }
+        );
+
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.error || "האיפוס נכשל");
+      }
+
+      alert("הסיסמה עודכנה בהצלחה.");
+    } catch (err) {
+      alert("שגיאה: " + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  supabaseClient.auth.onAuthStateChange(() => {
+    setTimeout(showForAdmin, 0);
+  });
+
+  showForAdmin();
+})();
+</script>
+
 </body>
 </html>
