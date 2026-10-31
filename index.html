@@ -18,6 +18,17 @@ const supabaseClient = window.supabase.createClient(
 <title>SUPHERB | ניהול מלאי אריזה</title>
 <style>
   
+/* Hide the application until login is approved */
+body:not(.supherb-authorized) > header,
+body:not(.supherb-authorized) > nav,
+body:not(.supherb-authorized) > main {
+  display: none !important;
+}
+
+body.supherb-authorized #authScreen {
+  display: none !important;
+}
+
 /* SUPHERB - Login and registration */
 #authScreen {
   min-height: 100vh;
@@ -439,7 +450,9 @@ async function loginUser() {
     return;
   }
 
-  document.getElementById('authScreen').style.display = 'none';
+  
+document.body.classList.add('supherb-authorized');
+
   authMessage('');
 }
 </script>
